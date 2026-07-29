@@ -12,7 +12,7 @@
  * different panel focused.
  */
 import { TextContainerProperty, TextContainerUpgrade } from '@evenrealities/even_hub_sdk'
-import { LINE_HEIGHT, row, wrapLines } from './layout'
+import { LINE_HEIGHT, row } from './layout'
 
 export type PanelOptions = {
   id: number
@@ -70,6 +70,29 @@ export class Panel {
     return ''
   }
 
+  /** What would be sent to the glasses right now. */
+  get content(): string {
+    return this.render() || ' '
+  }
+
+  /**
+   * Content last confirmed on the glasses.
+   *
+   * Re-sending identical text is not free: the firmware resets a container's
+   * scroll position to the top on every update, so a periodic refresh that
+   * changes nothing would still yank the reader back. Callers send only when
+   * this differs.
+   */
+  private sent: string | null = null
+
+  isSent(content: string): boolean {
+    return this.sent === content
+  }
+
+  markSent(content: string) {
+    this.sent = content
+  }
+
   property(focused: boolean): TextContainerProperty {
     return new TextContainerProperty({
       xPosition: this.x,
@@ -83,19 +106,26 @@ export class Panel {
       paddingLength: this.padding,
       containerID: this.id,
       containerName: this.name,
-      content: this.render() || ' ',
+      content: this.contentAndMarkSent(),
       isEventCapture: focused ? 1 : 0,
     })
   }
 
-  upgrade(): TextContainerUpgrade {
+  upgradeFor(content: string): TextContainerUpgrade {
     return new TextContainerUpgrade({
       containerID: this.id,
       containerName: this.name,
       contentOffset: 0,
       contentLength: 0,
-      content: this.render() || ' ',
+      content,
     })
+  }
+
+  /** Creating or rebuilding a page carries the content, so record it as sent. */
+  private contentAndMarkSent(): string {
+    const content = this.content
+    this.markSent(content)
+    return content
   }
 }
 
@@ -173,59 +203,22 @@ export class ItemListPanel<T> extends Panel {
 }
 
 /**
- * A scrollable block of text.
+ * A block of text that may overflow its container.
  *
- * Content is split into real display rows up front (see `wrapLines`) so a
- * scroll step moves exactly one visible row even when a line wraps.
+ * The container is given the content in full, which is what makes the firmware
+ * draw its own scrollbar — a proportional thumb on the right edge showing how
+ * much is off-screen — and scroll it natively while focused. The app therefore
+ * does not window the text or track a scroll offset; doing so would hide the
+ * overflow from the firmware and the bar would disappear with it.
  */
 export class ScrollPanel extends Panel {
-  private lines: string[] = []
-  private offset = 0
+  private text = ''
 
-  /**
-   * Replaces the content. The offset is clamped rather than reset, so a
-   * periodic refresh does not yank the view back to the top while reading.
-   */
   setContent(text: string) {
-    this.lines = wrapLines(text, this.innerWidth)
-    this.offset = Math.min(this.offset, this.maxOffset)
-  }
-
-  scrollToTop() {
-    this.offset = 0
-  }
-
-  get scrollable(): boolean {
-    return this.lines.length > this.maxLines
-  }
-
-  private get maxOffset(): number {
-    return Math.max(0, this.lines.length - this.visibleLines)
-  }
-
-  /** One row is spent on the overflow marker whenever content does not fit. */
-  private get visibleLines(): number {
-    return this.scrollable ? this.maxLines - 1 : this.maxLines
-  }
-
-  /** Returns true when the view actually moved. */
-  scrollBy(delta: number): boolean {
-    const next = Math.max(0, Math.min(this.maxOffset, this.offset + delta))
-    if (next === this.offset) return false
-    this.offset = next
-    return true
+    this.text = text
   }
 
   render(): string {
-    const visible = this.lines.slice(this.offset, this.offset + this.visibleLines)
-    if (!this.scrollable) return visible.join('\n')
-
-    const above = this.offset
-    const below = this.lines.length - this.offset - this.visibleLines
-    const marker = [above > 0 ? `^${above}` : '', below > 0 ? `+${below} more` : 'end'].filter(
-      Boolean,
-    )
-
-    return [...visible, marker.join('  ')].join('\n')
+    return this.text
   }
 }

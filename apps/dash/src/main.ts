@@ -4,7 +4,7 @@ import {
   OsEventTypeList,
   RebuildPageContainer,
 } from '@evenrealities/even_hub_sdk'
-import { ItemListPanel, ScrollPanel } from './containers'
+import { ItemListPanel, Panel, ScrollPanel } from './containers'
 import { sections, type Section } from './sections'
 
 /**
@@ -78,10 +78,22 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   ])
 }
 
-function push(panel: ItemListPanel<Section> | ScrollPanel) {
-  return serialize(() =>
-    withTimeout(bridge.textContainerUpgrade(panel.upgrade()), `upgrade ${panel.name}`),
-  )
+/**
+ * Sends a panel's text, but only when it actually changed. Every update resets
+ * the container's native scroll position, so a no-op refresh would drag the
+ * reader back to the top of a scrolled section.
+ */
+async function push(panel: Panel) {
+  const content = panel.content
+  if (panel.isSent(content)) return
+
+  await serialize(async () => {
+    await withTimeout(
+      bridge.textContainerUpgrade(panel.upgradeFor(content)),
+      `upgrade ${panel.name}`,
+    )
+    panel.markSent(content)
+  })
 }
 
 type Focus = 'menu' | 'content'
@@ -94,12 +106,6 @@ let focus: Focus = 'menu'
 async function setFocus(next: Focus) {
   if (focus === next) return
   focus = next
-
-  // Returning to the menu restores the preview view, title and all — otherwise
-  // the pane stays wherever reading left it, with the heading scrolled away.
-  if (focus === 'menu') {
-    content.scrollToTop()
-  }
 
   await serialize(() =>
     withTimeout(
@@ -149,7 +155,6 @@ async function load(section: Section): Promise<void> {
 /** Cursor moved: show whatever is cached immediately, then refresh it. */
 async function selectCurrent() {
   const section = menu.selected
-  content.scrollToTop()
   paint(section)
 
   await push(menu)
@@ -158,12 +163,10 @@ async function selectCurrent() {
 }
 
 function onScroll(delta: number) {
-  if (focus === 'menu') {
-    if (menu.moveBy(delta)) void selectCurrent()
-    return
-  }
-
-  if (content.scrollBy(delta)) void push(content)
+  // Only the menu scrolls here. While the content panel has focus the firmware
+  // scrolls it natively and does not forward the event.
+  if (focus !== 'menu') return
+  if (menu.moveBy(delta)) void selectCurrent()
 }
 
 const created = await bridge.createStartUpPageContainer(
