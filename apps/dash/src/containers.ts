@@ -106,9 +106,18 @@ export class Panel {
       paddingLength: this.padding,
       containerID: this.id,
       containerName: this.name,
-      content: this.contentAndMarkSent(),
+      content: this.content,
       isEventCapture: focused ? 1 : 0,
     })
+  }
+
+  /**
+   * Forgets what the glasses are showing, so the next push writes even if the
+   * text is unchanged. Needed after the firmware discards container state —
+   * returning from the background, or a rebuild that failed.
+   */
+  invalidate() {
+    this.sent = null
   }
 
   upgradeFor(content: string): TextContainerUpgrade {
@@ -119,13 +128,6 @@ export class Panel {
       contentLength: 0,
       content,
     })
-  }
-
-  /** Creating or rebuilding a page carries the content, so record it as sent. */
-  private contentAndMarkSent(): string {
-    const content = this.content
-    this.markSent(content)
-    return content
   }
 }
 
@@ -146,7 +148,7 @@ export type ItemListOptions<T> = PanelOptions & {
  * skip redundant BLE writes.
  */
 export class ItemListPanel<T> extends Panel {
-  readonly items: T[]
+  items: T[]
 
   private readonly labelOf: (item: T) => string
   private readonly cursor: string
@@ -166,36 +168,71 @@ export class ItemListPanel<T> extends Panel {
     return this.index
   }
 
+  /**
+   * Replaces the items, keeping the same entry selected where possible — the
+   * phone UI can reorder sections while the menu is on screen.
+   */
+  setItems(items: T[], keep?: T) {
+    this.items = items
+
+    const kept = keep === undefined ? -1 : items.indexOf(keep)
+    this.index = Math.max(0, kept >= 0 ? kept : Math.min(this.index, items.length - 1))
+    this.clampWindow()
+  }
+
   get selected(): T {
     return this.items[this.index]
   }
 
-  /** Returns true when the selection actually moved. */
+  /**
+   * Moves the cursor, wrapping at both ends.
+   *
+   * Wrapping is not a nicety here: the only input is one scroll event per row,
+   * so without it the last section costs as many scrolls as the list is long.
+   */
   moveBy(delta: number): boolean {
-    const next = Math.max(0, Math.min(this.items.length - 1, this.index + delta))
+    const count = this.items.length
+    if (count === 0) return false
+
+    const next = (((this.index + delta) % count) + count) % count
     if (next === this.index) return false
 
     this.index = next
+    this.clampWindow()
+    return true
+  }
 
-    // Keep the cursor inside the visible window.
+  private clampWindow() {
+    const lastStart = Math.max(0, this.items.length - this.maxLines)
+    this.windowStart = Math.max(0, Math.min(this.windowStart, lastStart))
+
     if (this.index < this.windowStart) {
       this.windowStart = this.index
     } else if (this.index >= this.windowStart + this.maxLines) {
       this.windowStart = this.index - this.maxLines + 1
     }
-
-    return true
   }
 
   render(): string {
     const visible = this.items.slice(this.windowStart, this.windowStart + this.maxLines)
+    const more = this.items.length - this.windowStart - visible.length
 
     return visible
       .map((item, offset) => {
         const isSelected = this.windowStart + offset === this.index
+
+        // Because the app draws this list itself, the firmware sees no overflow
+        // and draws no scrollbar — without these markers nothing hints that
+        // there are more sections above or below. They sit at the right edge,
+        // clear of the cursor column and of the labels.
+        let marker = ' '
+        if (offset === 0 && this.windowStart > 0) marker = '^'
+        else if (offset === visible.length - 1 && more > 0) marker = 'v'
+
         return row([
           { text: isSelected ? this.cursor : ' ', x: 0 },
           { text: this.labelOf(item), x: this.labelX },
+          { text: marker, x: this.innerWidth, align: 'right' },
         ])
       })
       .join('\n')

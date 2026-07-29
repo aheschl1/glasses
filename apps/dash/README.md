@@ -66,18 +66,20 @@ workspace compiles with `strict`.
 Codegen is deliberately **not** part of `npm run build` — builds would then fail
 whenever the server is unreachable. The committed schema is the build input.
 
-**No auth is wired up**, because every endpoint this app reads is public — only
-`/api/auth/me` returns 401 unauthenticated. If that changes, pass a `getToken` to
-`createDashClient` in [src/api.ts](src/api.ts) and use `login()` from the package.
-Note the spec declares no security scheme (`/api/auth/me` takes a raw
-`authorization` header), so auth goes on as client middleware rather than as
-generated per-operation auth — and there is no credential entry on the glasses, so
-a token has to be provisioned rather than typed.
+**Reading works signed out**; the commands do not. `/api/host/reboot` takes an
+`authorization` header, so the phone settings screen signs in once and stores the
+returned token (never the password) in `localStorage`. [src/api.ts](src/api.ts)
+passes a `getToken` to `createDashClient`, which attaches it as client middleware —
+the spec declares no security scheme, so there is no generated per-operation auth.
+
+There is no credential entry on the glasses, which is why sign-in lives on the phone.
 
 ## Glasses layout
 
-Two panels on the 576x288 canvas, built in [src/main.ts](src/main.ts) from the
-generic containers in [src/containers.ts](src/containers.ts):
+Two panels on the 576x288 canvas, built in [src/glasses.ts](src/glasses.ts) from the
+generic containers in [src/containers.ts](src/containers.ts).
+[src/main.tsx](src/main.tsx) is the entry point: it mounts the phone settings screen
+and starts the glasses runtime alongside it.
 
 ```text
 0        168 176                      576
@@ -91,12 +93,16 @@ generic containers in [src/containers.ts](src/containers.ts):
 ```
 
 | focus | scroll | click | double click |
-|---|---|---|---|
-| menu | move cursor, preview that section immediately | focus content | — |
-| content | scroll the section | — | focus menu |
+| --- | --- | --- | --- |
+| menu | move cursor (wraps), preview that section immediately | focus content | — |
+| content | pick a command, or scroll long text natively | run the command | focus menu |
 
 Moving the cursor paints the section from cache (or `Loading...`) before the request
 starts, so the pane never sits blank waiting on the network.
+
+Refreshes pause while the content panel has focus: every update resets the firmware's
+scroll position, so a live section would drag a reader back to the top mid-sentence.
+The section reloads on the way back out.
 
 ### Why both panels are text containers
 
@@ -113,7 +119,9 @@ containers do receive scroll events, so the app draws the list and cursor itself
 | `double_click` | `{eventType: 3}` sysEvent | DOUBLE_CLICK |
 
 Drawing the list also buys vertical space: self-drawn rows are 27px against the
-firmware list's fixed 40px, so all 8 sections fit at once instead of 7.
+firmware list's fixed 40px, so ten sections fit at once instead of seven. The cost is
+that the firmware sees no overflow and draws no scrollbar for the menu, so
+`ItemListPanel` renders its own `^` / `v` markers at the right edge.
 
 Two consequences worth knowing:
 
@@ -134,18 +142,32 @@ lands each column within one space of its target. Two rules that matter:
 
 - Pad by **flooring** the gap. Rounding up overshoots the 388px text area and silently
   costs a wrapped row.
-- Budget rows by **wrapped** line count, not `\n` count. The content pane fits exactly
-  10 lines of 27px; `clipToLines` measures each line and appends `+N more`.
+- The content pane fits exactly 10 rows of 27px. Sections do not clip to it —
+  `ScrollPanel` hands the container the full text so the firmware draws its scrollbar
+  and scrolls it natively.
 
 `pretext` embeds font tables, which is most of the ~63KB gzipped bundle. That ships in
 the `.ehpk` and is served locally by the companion app, not over BLE.
 
 ## Current state
 
-Eight sections — System, Temps, GPU, Disk, Docker, VMs, Net, Alerts — each backed by a
-public endpoint and refreshed every 5s. Bridge calls are serialized through a queue and
-capped with a 5s timeout, since concurrent calls can drop the BLE connection and a flaky
-hop can otherwise hang for ~30s.
+Seventeen sections (see [src/sections/order.ts](src/sections/order.ts) for the default
+order), each backed by a public endpoint. Alerts leads because it is the one that
+answers "does this need me right now?".
+
+Refresh interval, menu order, and which sections appear at all are set from the phone
+screen in [src/ui/](src/ui/) and persist in `localStorage`.
+
+Bridge calls are serialized through a queue and capped with a 5s timeout, since
+concurrent calls can drop the BLE connection and a flaky hop can otherwise hang for
+~30s. Writes are skipped when the rendered text is unchanged.
+
+### Commands
+
+`Power` carries the only write action, `Restart host`. It requires two clicks, arms for
+ten seconds and then cancels itself, and the cursor starts on `Cancel` — a stray click
+must never reboot a machine. Sections whose content overflows cannot host commands: the
+firmware swallows the scroll events the cursor needs once a container scrolls.
 
 ## Simulator
 
