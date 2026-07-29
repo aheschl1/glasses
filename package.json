@@ -1,0 +1,17 @@
+{
+  "name": "even-realities",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Even Realities G2 apps and the packages they share.",
+  "workspaces": [
+    "packages/*",
+    "dash",
+    "my-first-app"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace dash",
+    "codegen": "npm run codegen --workspace @andrewheschl/dash-api",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

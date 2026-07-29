@@ -1,0 +1,19 @@
+{
+  "package_id": "ca.andrewheschl.dash",
+  "edition": "202601",
+  "name": "Dash",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.12",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Dash fetches dashboard data from dash.andrewheschl.ca to show it on your glasses.",
+      "whitelist": [
+        "https://dash.andrewheschl.ca"
+      ]
+    }
+  ],
+  "supported_languages": ["en"]
+}

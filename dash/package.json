@@ -1,0 +1,26 @@
+{
+  "name": "dash",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "pack": "npm run build && evenhub pack app.json dist -o dash.ehpk",
+    "qr": "evenhub qr",
+    "simulate": "evenhub-simulator http://localhost:5173"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.13",
+    "@evenrealities/evenhub-simulator": "^0.8.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.1"
+  },
+  "dependencies": {
+    "@andrewheschl/dash-api": "*",
+    "@evenrealities/even_hub_sdk": "^0.0.12",
+    "@evenrealities/pretext": "^0.1.4"
+  }
+}
