@@ -5,8 +5,7 @@
   "description": "Even Realities G2 apps and the packages they share.",
   "workspaces": [
     "packages/*",
-    "dash",
-    "my-first-app"
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspace dash",

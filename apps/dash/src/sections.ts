@@ -9,14 +9,13 @@
  * no casts. Run `npm run codegen` after the service changes.
  */
 import { api } from './api'
-import { bar, clipToLines, fit, row } from './layout'
+import { bar, fit, row } from './layout'
 
-/** Text area of the content pane: width 400 minus 6px padding per side. */
+/**
+ * Width of the content pane's text area. Renderers size columns against this;
+ * overflow is the pane's problem, not theirs — ScrollPanel scrolls it.
+ */
 export const CONTENT_INNER_WIDTH = 388
-/** Height 288 minus padding, divided by the 27px line height. */
-const CONTENT_LINES = 10
-/** Title plus its blank line are drawn by main.ts. */
-const BODY_LINES = CONTENT_LINES - 2
 
 const BAR_SEGMENTS = 8
 const BAR_X = 60
@@ -48,7 +47,7 @@ function rate(bps: number): string {
 }
 
 function clip(lines: string[]): string {
-  return clipToLines(lines, CONTENT_INNER_WIDTH, BODY_LINES)
+  return lines.join('\n')
 }
 
 export type Section = {
@@ -136,39 +135,31 @@ export const sections: Section[] = [
       const { data: containers, error } = await api.GET('/api/containers')
       if (error) throw new Error(JSON.stringify(error))
 
-      const problems = containers.filter(
-        (c) => c.status !== 'running' || c.health === 'unhealthy',
-      )
+      const isProblem = (c: (typeof containers)[number]) =>
+        c.status !== 'running' || c.health === 'unhealthy'
       const running = containers.filter((c) => c.status === 'running').length
 
-      // Only problems earn a status column; when everything is up the summary
-      // line already says so, so names get the full width instead.
-      const listed = problems.length > 0 ? problems : containers
-      // Budget: body lines, less the summary and its blank line, less a row for
-      // the "+N more" marker when one is needed.
-      const available = BODY_LINES - 2
-      const visible = listed.slice(0, listed.length > available ? available - 1 : available)
+      // Anything wrong sorts to the top, where it survives the hover preview's
+      // first few rows; the rest is reachable by scrolling.
+      const ordered = [...containers].sort(
+        (a, b) => Number(isProblem(b)) - Number(isProblem(a)) || a.name.localeCompare(b.name),
+      )
 
-      const lines = [`${running} / ${containers.length} running`, '']
-      for (const container of visible) {
-        lines.push(
-          problems.length > 0
-            ? row([
-                { text: '!', x: 0 },
-                { text: fit(container.name, 220), x: 16 },
-                { text: container.status, x: RIGHT_EDGE, align: 'right' },
-              ])
-            : row([
-                { text: '·', x: 0 },
-                { text: fit(container.name, 340), x: 16 },
-              ]),
-        )
-      }
-      if (listed.length > visible.length) {
-        lines.push(`+${listed.length - visible.length} more`)
-      }
-
-      return clip(lines)
+      return clip([
+        `${running} / ${containers.length} running`,
+        '',
+        ...ordered.map((container) =>
+          row([
+            { text: isProblem(container) ? '!' : '·', x: 0 },
+            { text: fit(container.name, 220), x: 16 },
+            {
+              text: container.health === 'none' ? container.status : container.health,
+              x: RIGHT_EDGE,
+              align: 'right',
+            },
+          ]),
+        ),
+      ])
     },
   },
   {

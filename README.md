@@ -1,4 +1,4 @@
-# even-realities
+# glasses
 
 Monorepo for Even Realities G2 smart glasses apps and the packages they share.
 Managed with **npm workspaces** — no extra tooling, and workspace packages are
@@ -7,13 +7,13 @@ symlinked so edits are picked up without a publish or rebuild step.
 ## Layout
 
 ```text
-even-realities/
-  package.json              root: workspace list + cross-cutting scripts
-  package-lock.json         the only lockfile — apps must not have their own
+glasses/
+  package.json              root: workspace globs + cross-cutting scripts
+  package-lock.json         the only lockfile — workspaces must not have their own
+  apps/
+    dash/                   G2 dashboard app
   packages/
     dash-api/               typed client + generated OpenAPI types
-  dash/                     G2 dashboard app
-  my-first-app/             G2 starter app
 ```
 
 ## Commands
@@ -59,21 +59,19 @@ the emitted `dist` instead.
 
 ## Adding a workspace
 
-1. Create the directory — `packages/<name>` is picked up by the `packages/*` glob;
-   a new app at the root needs an explicit entry in the root `workspaces` array.
+1. Create the directory. Both globs are already wired up: a shared library goes in
+   `packages/<name>`, a glasses app in `apps/<name>`. No change to the root
+   `workspaces` array is needed.
 2. Give it a `package.json` with a unique `name` and `"private": true`.
 3. Depend on a sibling with `"@andrewheschl/dash-api": "*"` — npm links the local
    copy instead of hitting the registry.
 4. Run `npm install` from the root.
 
-If you later prefer the conventional split, moving the apps into `apps/` and
-using `"workspaces": ["packages/*", "apps/*"]` is a directory move plus a one-line
-change here.
+## Note
 
-## Gotchas
-
-- **One lockfile.** Workspaces share the root `package-lock.json`; per-app
-  lockfiles were removed and should not come back.
-- **Hoisting.** Dependencies install to the root `node_modules`. An app can still
-  import a package it does not declare, so add real dependencies to the app's own
+- **One lockfile.** Workspaces share the root `package-lock.json`; per-workspace
+  lockfiles were removed and should not come back. `npm install` only runs at the
+  root.
+- **Hoisting.** Dependencies install to the root `node_modules`, so a workspace can
+  import a package it never declared. Add real dependencies to that workspace's own
   `package.json` rather than relying on the hoist.

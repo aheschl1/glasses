@@ -7,7 +7,7 @@
  * the right number of spaces (5px each), which lands every column within one
  * space of its target.
  */
-import { getTextWidth, measureTextWrap, pxTruncate } from '@evenrealities/pretext'
+import { getTextWidth, pxTruncate } from '@evenrealities/pretext'
 
 /** Fixed by the firmware renderer. */
 export const LINE_HEIGHT = 27
@@ -48,31 +48,52 @@ export function fit(text: string, maxPx: number): string {
   return pxTruncate(text, maxPx)
 }
 
+
 /**
- * Clips to a line budget, counting wrapped lines rather than `\n` breaks — a
- * long line silently costs two rows on the display.
+ * Splits text into the display rows the renderer will actually produce, so
+ * scrolling can step by real rows rather than by `\n`.
+ *
+ * Lines that already fit pass through untouched — they carry column padding
+ * built by `row()`, and re-joining their words would destroy the alignment.
+ * Only overlong lines (prose) get word-wrapped.
  */
-export function clipToLines(lines: string[], innerWidth: number, maxLines: number): string {
-  const kept: string[] = []
-  let used = 0
+export function wrapLines(text: string, innerWidth: number): string[] {
+  const out: string[] = []
 
-  for (const [index, line] of lines.entries()) {
-    const cost = line === '' ? 1 : measureTextWrap(line, innerWidth).lineCount
-    const remaining = lines.length - index
-
-    // Reserve a row for the "+N more" marker when something will be dropped.
-    const budget = remaining > 1 ? maxLines - 1 : maxLines
-
-    if (used + cost > budget) {
-      kept.push(`+${remaining} more`)
-      return kept.join('\n')
+  for (const paragraph of text.split('\n')) {
+    if (getTextWidth(paragraph) <= innerWidth) {
+      out.push(paragraph)
+      continue
     }
 
-    kept.push(line)
-    used += cost
+    let line = ''
+    for (const word of paragraph.split(' ')) {
+      const candidate = line === '' ? word : `${line} ${word}`
+      if (getTextWidth(candidate) <= innerWidth) {
+        line = candidate
+        continue
+      }
+      if (line !== '') {
+        out.push(line)
+        line = ''
+      }
+      // A single word wider than the pane: break it by character.
+      let chunk = ''
+      for (const char of word) {
+        if (chunk !== '' && getTextWidth(chunk + char) > innerWidth) {
+          out.push(chunk)
+          chunk = char
+        } else {
+          chunk += char
+        }
+      }
+      line = chunk
+    }
+
+    if (line !== '') out.push(line)
   }
 
-  return kept.join('\n')
+  return out
 }
 
 /** Horizontal meter drawn with box-drawing glyphs (20px each). */

@@ -3,7 +3,7 @@
 Even Hub G2 app that pulls data from `https://dash.andrewheschl.ca` and renders it
 on the glasses display (576x288, 4-bit greyscale).
 
-One workspace of the [even-realities](../README.md) monorepo. The API client lives
+One workspace of the [glasses](../../README.md) monorepo. The API client lives
 in `@andrewheschl/dash-api` so other G2 apps can share it.
 
 ## Development
@@ -46,7 +46,7 @@ the webview enforces CORS normally.
 ## API access
 
 The client and the generated types live in
-[packages/dash-api](../packages/dash-api). [src/api.ts](src/api.ts) is just this
+[packages/dash-api](../../packages/dash-api). [src/api.ts](src/api.ts) is just this
 app's configured instance — base URL, token storage — so call sites import from
 there:
 
@@ -76,28 +76,54 @@ a token has to be provisioned rather than typed.
 
 ## Glasses layout
 
-Two panes on the 576x288 canvas, built in [src/main.ts](src/main.ts):
+Two panels on the 576x288 canvas, built in [src/main.ts](src/main.ts) from the
+generic containers in [src/containers.ts](src/containers.ts):
 
 ```text
 0        168 176                      576
 ┌──────────┐ ┌─────────────────────────┐
-│ System   │ │ SYSTEM                  │
-│ Temps    │ │ CPU  ━━──────       12% │
-│ ...      │ │ ...                     │
+│ > System │ │ SYSTEM                  │
+│   Temps  │ │ CPU  ━━──────       12% │
+│   ...    │ │ ...                     │
 └──────────┘ └─────────────────────────┘
- list          content
- bordered      no border, updated in place
+ menu          content
+ ItemListPanel ScrollPanel
 ```
 
-The left pane is a **list container**: the firmware scrolls and highlights it natively,
-and it holds the page's single `isEventCapture: 1`. The right pane is a text container
-refreshed with `textContainerUpgrade`, which is flicker-free — a `rebuildPageContainer`
-would redraw the list too.
+| focus | scroll | click | double click |
+|---|---|---|---|
+| menu | move cursor, preview that section immediately | focus content | — |
+| content | scroll the section | — | focus menu |
 
-**Interaction:** scroll (swipe up/down) moves the highlight only. The list emits its
-`listEvent` on **tap**, so a section loads when you tap it — verified in the simulator.
-List items are a fixed 40px, so 7 of the 8 sections are visible at once and the rest
-scroll into view.
+Moving the cursor paints the section from cache (or `Loading...`) before the request
+starts, so the pane never sits blank waiting on the network.
+
+### Why both panels are text containers
+
+The firmware's list container looks like the obvious fit, but it **scrolls itself and
+reports nothing until you tap it** — verified in the simulator: `up`/`down` over a list
+produce no event at all. Previewing on hover is therefore impossible with it. Text
+containers do receive scroll events, so the app draws the list and cursor itself:
+
+| input | event | |
+|---|---|---|
+| `up` | `{containerID, eventType: 1}` textEvent | SCROLL_TOP |
+| `down` | `{containerID, eventType: 2}` textEvent | SCROLL_BOTTOM |
+| `click` | `{eventSource: 1}` sysEvent | CLICK (type 0, omitted) |
+| `double_click` | `{eventType: 3}` sysEvent | DOUBLE_CLICK |
+
+Drawing the list also buys vertical space: self-drawn rows are 27px against the
+firmware list's fixed 40px, so all 8 sections fit at once instead of 7.
+
+Two consequences worth knowing:
+
+- **Focus costs a rebuild.** `isEventCapture` is fixed when a container is created, so
+  moving focus calls `rebuildPageContainer`, not an upgrade. Both panels always draw a
+  1px border and only change its colour with focus — a conditional border would change
+  the inner width and reflow the text on every focus change.
+- **Proto3 omits zero values.** `CLICK_EVENT` is 0 and so arrives as `undefined`; the
+  same applied to `currentSelectItemIndex` for item 0 back when this used a list
+  container. Treat an absent enum as 0, never as "no value".
 
 ### Why layout is measured in pixels
 
